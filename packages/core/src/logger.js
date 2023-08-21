@@ -37,7 +37,7 @@ const WEEK = 86400000 * 7;
 class DatabaseLogReporter {
   /**
    *
-   * @param {import("./database/storage").default} storage
+   * @param {import("./database/crypto").default} storage
    */
   constructor(storage) {
     this.writer = new DatabaseLogWriter(storage);
@@ -55,7 +55,7 @@ class DatabaseLogReporter {
 class DatabaseLogWriter {
   /**
    *
-   * @param {import("./database/storage").default} storage
+   * @param {import("./database/crypto").default} storage
    */
   constructor(storage) {
     this.storage = storage;
@@ -108,7 +108,7 @@ class DatabaseLogWriter {
 class DatabaseLogManager {
   /**
    *
-   * @param {import("./database/storage").default} storage
+   * @param {import("./database/crypto").default} storage
    */
   constructor(storage) {
     this.storage = storage;
@@ -155,7 +155,7 @@ class DatabaseLogManager {
   }
 }
 
-function initalize(storage, disableConsoleLogs) {
+function initialize(storage, disableConsoleLogs) {
   if (storage) {
     let reporters = [new DatabaseLogReporter(storage)];
     if (process.env.NODE_ENV !== "production" && !disableConsoleLogs)
@@ -178,4 +178,4 @@ var logger = new NoopLogger();
  */
 var logManager;
 
-export { LogLevel, format, initalize, logManager, logger };
+export { LogLevel, format, initialize, logManager, logger };
