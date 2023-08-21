@@ -62,9 +62,9 @@ export const getDefaultSession = (sessionId = Date.now()) => {
     localOnly: false,
     favorite: false,
     locked: false,
-    tags: [],
+    // tags: [],
     context: undefined,
-    color: undefined,
+    // color: undefined,
     dateEdited: 0,
     attachmentsLength: 0,
     isDeleted: false,
@@ -81,6 +81,8 @@ export const getDefaultSession = (sessionId = Date.now()) => {
  */
 class EditorStore extends BaseStore {
   session = getDefaultSession();
+  tags = [];
+  color = undefined;
   arePropertiesVisible = false;
   editorMargins = Config.get("editor:margins", true);
 
@@ -97,7 +99,14 @@ class EditorStore extends BaseStore {
 
   refreshTags = () => {
     this.set((state) => {
-      state.session.tags = state.session.tags.slice();
+      if (!state.session.id) return;
+      console.log(
+        db.relations.to({ id: state.session.id, type: "note" }, "tag")
+      );
+      state.tags = db.relations.to(
+        { id: state.session.id, type: "note" },
+        "tag"
+      );
     });
   };
 
@@ -109,7 +118,6 @@ class EditorStore extends BaseStore {
   updateSession = async (item) => {
     this.set((state) => {
       state.session.title = item.title;
-      state.session.tags = item.tags;
       state.session.pinned = item.pinned;
       state.session.favorite = item.favorite;
       state.session.readonly = item.readonly;
@@ -117,6 +125,7 @@ class EditorStore extends BaseStore {
       state.session.dateCreated = item.dateCreated;
       state.session.locked = item.locked;
     });
+    this.refreshTags();
   };
 
   openLockedSession = async (note) => {
@@ -136,7 +145,7 @@ class EditorStore extends BaseStore {
   openSession = async (noteId, force) => {
     const session = this.get().session;
 
-    if (session.id) await db.fs.cancel(session.id);
+    if (session.id) await db.fs().cancel(session.id);
     if (session.id === noteId && !force) return;
 
     if (session.state === SESSION_STATES.unlocked) {
@@ -212,8 +221,8 @@ class EditorStore extends BaseStore {
         const { type, value } = currentSession.context;
         if (type === "topic" || type === "notebook")
           await db.notes.addToNotebook(value, id);
-        else if (type === "color") await db.notes.note(id).color(value);
-        else if (type === "tag") await db.notes.note(id).tag(value);
+        else if (type === "color" || type === "tag")
+          await db.relations.add({ type, id: value }, { id, type: "note" });
         // update the note.
         note = db.notes.note(id)?.data;
       } else if (!sessionId && db.settings.getDefaultNotebook()) {
@@ -262,7 +271,7 @@ class EditorStore extends BaseStore {
   newSession = async (nonce) => {
     let context = noteStore.get().context;
     const session = this.get().session;
-    if (session.id) await db.fs.cancel(session.id);
+    if (session.id) await db.fs().cancel(session.id);
 
     this.set((state) => {
       state.session = {
@@ -279,7 +288,7 @@ class EditorStore extends BaseStore {
 
   clearSession = async (shouldNavigate = true) => {
     const session = this.get().session;
-    if (session.id) await db.fs.cancel(session.id);
+    if (session.id) await db.fs().cancel(session.id);
 
     this.set((state) => {
       state.session = {
@@ -345,26 +354,24 @@ class EditorStore extends BaseStore {
   };
 
   async _setTag(value) {
-    value = db.tags.sanitize(value);
-    if (!value) return;
-    const { tags, id } = this.get().session;
+    const {
+      tags,
+      session: { id }
+    } = this.get();
 
     let note = db.notes.note(id);
     if (!note) return;
 
-    let index = tags.indexOf(value);
-
-    if (index > -1) {
-      await note.untag(value);
+    let tag = tags.find((t) => t.title === value);
+    if (tag) {
+      await db.relations.unlink(tag, note._note);
       appStore.refreshNavItems();
     } else {
-      await note.tag(value);
+      const id = await db.tags.add({ title: value });
+      await db.relations.add({ id, type: "tag" }, note._note);
     }
 
-    this.set((state) => {
-      state.session.tags = db.notes.note(id).tags.slice();
-    });
-
+    this.refreshTags();
     tagStore.refresh();
     noteStore.refresh();
   }

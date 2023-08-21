@@ -20,7 +20,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import { SettingsGroup } from "./types";
 import { useStore as useSettingStore } from "../../stores/setting-store";
 import { useStore as useUserStore } from "../../stores/user-store";
-import { getPlatform, isDesktop } from "../../utils/platform";
+import { getPlatform } from "../../utils/platform";
 import { db } from "../../common/db";
 import { showPromptDialog } from "../../common/dialog-controller";
 import Config from "../../utils/config";
@@ -66,7 +66,7 @@ What data is collected & when?`,
             type: "toggle",
             isToggled: () => !!useUserStore.getState().user?.marketingConsent,
             toggle: async () => {
-              await db.user?.changeMarketingConsent(
+              await db.user.changeMarketingConsent(
                 !useUserStore.getState().user?.marketingConsent
               );
               await useUserStore.getState().refreshUser();

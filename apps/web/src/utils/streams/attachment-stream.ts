@@ -31,7 +31,7 @@ export class AttachmentStream extends ReadableStream<ZipFile> {
   ) {
     if (signal)
       signal.onabort = async () => {
-        await db.fs?.cancel(GROUP_ID, "download");
+        await db.fs().cancel(GROUP_ID, "download");
       };
 
     let index = 0;
@@ -46,14 +46,18 @@ export class AttachmentStream extends ReadableStream<ZipFile> {
         onProgress && onProgress(index);
         const attachment = attachments[index++];
 
-        await db.fs?.downloadFile(
-          GROUP_ID,
-          attachment.metadata.hash,
-          attachment.chunkSize,
-          attachment.metadata
-        );
+        await db
+          .fs()
+          .downloadFile(
+            GROUP_ID,
+            attachment.metadata.hash,
+            attachment.chunkSize,
+            attachment.metadata
+          );
 
-        const key = await db.attachments?.decryptKey(attachment.key);
+        const key = await db.attachments.decryptKey(attachment.key);
+        if (!key) return;
+
         const file = await decryptFile(attachment.metadata.hash, {
           key,
           iv: attachment.iv,

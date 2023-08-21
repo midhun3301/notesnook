@@ -105,10 +105,9 @@ function Properties(props) {
     dateCreated
   } = session;
   const isPreviewMode = sessionType === "preview";
-  const reminders = db.relations.from(
-    { id: session.id, type: "note" },
-    "reminder"
-  );
+  const reminders = db.relations
+    .from({ id: session.id, type: "note" }, "reminder")
+    .resolved();
   const allNotebooks = useMemo(
     () => [
       ...notebooks.map((ref) => db.notebooks.notebook(ref.id)?.data),
@@ -288,7 +287,7 @@ function Properties(props) {
               ))}
             </Card>
           )}
-          {reminders?.length > 0 && (
+          {reminders.length > 0 && (
             <Card title="Reminders">
               {reminders.map((reminder) => {
                 return (
@@ -298,7 +297,7 @@ function Properties(props) {
             </Card>
           )}
 
-          {attachments?.length > 0 && (
+          {attachments.length > 0 && (
             <Card
               title="Attachments"
               subtitle={`${attachments.length} attachments | ${formatBytes(

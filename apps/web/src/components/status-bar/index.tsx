@@ -34,7 +34,7 @@ import {
 import { useStore as useUserStore } from "../../stores/user-store";
 import { useStore as useAppStore } from "../../stores/app-store";
 import TimeAgo from "../time-ago";
-import { hardNavigate, hashNavigate, navigate } from "../../navigation";
+import { hardNavigate, hashNavigate } from "../../navigation";
 import { useAutoUpdater, UpdateStatus } from "../../hooks/use-auto-updater";
 import {
   showIssueDialog,
@@ -44,6 +44,7 @@ import useStatus, { statusToString } from "../../hooks/use-status";
 import { ScopedThemeProvider } from "../theme-provider";
 import { checkForUpdate, installUpdate } from "../../utils/updater";
 import { toTitleCase } from "@notesnook/common";
+import { User } from "@notesnook/core/dist/api/user-manager";
 
 function StatusBar() {
   const user = useUserStore((state) => state.user);
@@ -68,8 +69,8 @@ function StatusBar() {
           <>
             <Button
               onClick={() =>
-                user?.isEmailConfirmed
-                  ? navigate("/settings")
+                !user || user.isEmailConfirmed
+                  ? hashNavigate("/settings")
                   : hashNavigate("/email/verify")
               }
               variant="statusitem"

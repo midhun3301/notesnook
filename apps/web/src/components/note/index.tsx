@@ -49,7 +49,7 @@ import {
   AddToNotebook,
   RemoveShortcutLink,
   Plus,
-  Tag
+  Tag as TagIcon
 } from "../icons";
 import TimeAgo from "../time-ago";
 import ListItem from "../list-item";
@@ -61,6 +61,8 @@ import {
 } from "../../common/dialog-controller";
 import { store, useStore } from "../../stores/note-store";
 import { store as userstore } from "../../stores/user-store";
+import { store as editorStore } from "../../stores/editor-store";
+import { store as tagStore } from "../../stores/tag-store";
 import { useStore as useAttachmentStore } from "../../stores/attachment-store";
 import { db } from "../../common/db";
 import { showUnpinnedToast } from "../../common/toasts";
@@ -73,23 +75,25 @@ import { exportNotes } from "../../common/export";
 import { Multiselect } from "../../common/multi-select";
 import { store as selectionStore } from "../../stores/selection-store";
 import {
-  Reminder as ReminderType,
   isReminderActive,
   isReminderToday
 } from "@notesnook/core/dist/collections/reminders";
 import { getFormattedReminderTime } from "@notesnook/common";
-import { MenuItem } from "@notesnook/ui";
 import {
-  Context,
-  Item,
-  ReferencesWithDateEdited
-} from "../list-container/types";
-import { SchemeColors } from "@notesnook/theme";
+  Reminder as ReminderType,
+  Tag,
+  Color,
+  Note
+} from "@notesnook/core/dist/types";
+import { MenuItem } from "@notesnook/ui";
+import { Context, ReferencesWithDateEdited } from "../list-container/types";
+import { SchemeColors, StaticColors } from "@notesnook/theme";
 
 type NoteProps = {
-  tags: Item[];
+  tags: Tag[];
+  color?: Color;
   references?: ReferencesWithDateEdited;
-  item: Item;
+  item: Note;
   context?: Context;
   date: number;
   reminder?: ReminderType;
@@ -98,7 +102,8 @@ type NoteProps = {
 };
 
 function Note(props: NoteProps) {
-  const { tags, references, item, date, reminder, simplified, compact } = props;
+  const { tags, color, references, item, date, reminder, simplified, compact } =
+    props;
   const note = item;
 
   const isOpened = useStore((store) => store.selectedNote === note.id);
@@ -109,9 +114,7 @@ function Note(props: NoteProps) {
     () => attachments.filter((a) => a.failed),
     [attachments]
   );
-  const primary: SchemeColors = !note.color
-    ? "accent-selected"
-    : (note.color as string).toLowerCase();
+  const primary: SchemeColors = color ? color.colorCode : "accent-selected";
 
   return (
     <ListItem
@@ -131,7 +134,7 @@ function Note(props: NoteProps) {
       }}
       colors={{
         accent: primary,
-        heading: note.color ? primary : "heading",
+        heading: color ? primary : "heading",
         background: "background"
       }}
       menuItems={menuItems}
@@ -228,13 +231,13 @@ function Note(props: NoteProps) {
 
               {note.favorite && <Star color={primary} size={15} />}
 
-              {tags?.map((tag) => {
+              {tags.map((tag) => {
                 return (
                   <Button
                     data-test-id={`tag-item`}
                     key={tag.id}
                     variant="anchor"
-                    title={`Go to #${tag.alias}`}
+                    title={`Go to #${tag.title}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!tag.id) return showToast("error", "Tag not found.");
@@ -247,7 +250,7 @@ function Note(props: NoteProps) {
                       color: "var(--paragraph-secondary)"
                     }}
                   >
-                    #{tag.alias}
+                    #{tag.title}
                   </Button>
                 );
               })}
@@ -280,7 +283,7 @@ export default React.memo(Note, function (prevProps, nextProps) {
   );
 });
 
-const pin = (note: Item) => {
+const pin = (note: Note) => {
   return store
     .pin(note.id)
     .then(async () => {
@@ -319,11 +322,11 @@ const formats = [
 
 const notFullySyncedText =
   "Cannot perform this action because note is not fully synced.";
-const menuItems: (note: any, items?: any[]) => MenuItem[] = (
+const menuItems: (note: Note, items?: Note[]) => MenuItem[] = (
   note,
   items = []
 ) => {
-  const isSynced = db.notes?.note(note.id).synced();
+  const isSynced = db.notes.note(note.id)?.synced();
   const ids = items.map((i) => i.id);
 
   return [
@@ -421,13 +424,13 @@ const menuItems: (note: any, items?: any[]) => MenuItem[] = (
       type: "button",
       key: "publish",
       isDisabled:
-        !isSynced || (!db.monographs?.isPublished(note.id) && note.locked),
+        !isSynced || (!db.monographs.isPublished(note.id) && note.locked),
       icon: Publish.path,
       title: "Publish",
-      isChecked: db.monographs?.isPublished(note.id),
+      isChecked: db.monographs.isPublished(note.id),
       onClick: async () => {
-        const isPublished = db.monographs?.isPublished(note.id);
-        if (isPublished) await db.monographs?.unpublish(note.id);
+        const isPublished = db.monographs.isPublished(note.id);
+        if (isPublished) await db.monographs.unpublish(note.id);
         else await showPublishView(note.id, "bottom");
       }
     },
@@ -505,30 +508,30 @@ const menuItems: (note: any, items?: any[]) => MenuItem[] = (
       icon: Trash.path,
       isDisabled:
         items.length === 1
-          ? db.monographs?.isPublished(note.id) || note.locked
-          : items.some((item) => !db.notes?.note(item.id).synced()),
+          ? db.monographs.isPublished(note.id) || note.locked
+          : items.some((item) => !db.notes.note(item.id)?.synced()),
       onClick: () => Multiselect.moveNotesToTrash(items, items.length > 1),
       multiSelect: true
     }
   ];
 };
 
-function colorsToMenuItems(note: any): MenuItem[] {
-  return COLORS.map((label) => {
-    const lowercase = label.toLowerCase();
+function colorsToMenuItems(note: Note): MenuItem[] {
+  const noteColor = db.relations.to(note, "color").resolved(1)[0];
+  return COLORS.map((color) => {
     return {
       type: "button",
-      key: lowercase,
-      title: db.colors?.alias(lowercase) || label,
+      key: color.key,
+      title: color.title,
       icon: Circle.path,
-      styles: { icon: { color: lowercase } },
-      isChecked: note.color === lowercase,
-      onClick: () => store.setColor(note.id, lowercase)
-    };
+      styles: { icon: { color: StaticColors[color.key] } },
+      isChecked: noteColor.title === color.title,
+      onClick: () => store.setColor(note.id, color.title)
+    } satisfies MenuItem;
   });
 }
 
-function notebooksMenuItems(items: any[]): MenuItem[] {
+function notebooksMenuItems(items: Note[]): MenuItem[] {
   const noteIds = items.map((i) => i.id);
 
   const menuItems: MenuItem[] = [];
@@ -541,11 +544,11 @@ function notebooksMenuItems(items: any[]): MenuItem[] {
   });
 
   const notebooks = items
-    .map((note) => db.relations?.to(note, "notebook"))
+    .map((note) => db.relations.to(note, "notebook").resolved())
     .flat();
   const topics = items.map((note) => note.notebooks || []).flat();
 
-  if (topics?.length > 0 || notebooks?.length > 0) {
+  if (topics?.length > 0 || notebooks.length > 0) {
     menuItems.push(
       {
         type: "button",
@@ -553,39 +556,40 @@ function notebooksMenuItems(items: any[]): MenuItem[] {
         title: "Unlink from all",
         icon: RemoveShortcutLink.path,
         onClick: async () => {
-          await db.notes?.removeFromAllNotebooks(...noteIds);
+          await db.notes.removeFromAllNotebooks(...noteIds);
           store.refresh();
         }
       },
       { key: "sep", type: "separator" }
     );
 
-    notebooks?.forEach((notebook) => {
+    notebooks.forEach((notebook) => {
       if (!notebook || menuItems.find((item) => item.key === notebook.id))
         return;
 
       menuItems.push({
         type: "button",
         key: notebook.id,
-        title: db.notebooks?.notebook(notebook.id).title,
+        title: notebook.title,
         icon: Notebook.path,
         isChecked: true,
         tooltip: "Click to remove from this notebook",
         onClick: async () => {
-          await db.notes?.removeFromNotebook({ id: notebook.id }, ...noteIds);
+          await db.notes.removeFromNotebook({ id: notebook.id }, ...noteIds);
           store.refresh();
         }
       });
     });
 
-    topics?.forEach((ref) => {
-      const notebook = db.notebooks?.notebook(ref.id);
+    topics.forEach((ref) => {
+      const notebook = db.notebooks.notebook(ref.id);
       if (!notebook) return;
       for (const topicId of ref.topics) {
         if (!notebook.topics.topic(topicId)) continue;
         if (menuItems.find((item) => item.key === topicId)) continue;
 
-        const topic = notebook.topics.topic(topicId)._topic;
+        const topic = notebook.topics.topic(topicId)?._topic;
+        if (!topic) continue;
         menuItems.push({
           type: "button",
           key: topicId,
@@ -594,7 +598,7 @@ function notebooksMenuItems(items: any[]): MenuItem[] {
           isChecked: true,
           tooltip: "Click to remove from this topic",
           onClick: async () => {
-            await db.notes?.removeFromNotebook(
+            await db.notes.removeFromNotebook(
               { id: ref.id, topic: topic.id },
               ...noteIds
             );
@@ -608,7 +612,7 @@ function notebooksMenuItems(items: any[]): MenuItem[] {
   return menuItems;
 }
 
-function tagsMenuItems(items: any[]): MenuItem[] {
+function tagsMenuItems(items: Note[]): MenuItem[] {
   const noteIds = items.map((i) => i.id);
 
   const menuItems: MenuItem[] = [];
@@ -622,9 +626,11 @@ function tagsMenuItems(items: any[]): MenuItem[] {
     }
   });
 
-  const tags = items.map((note) => note.tags).flat();
+  const tags = items
+    .map((note) => db.relations.to(note, "tag").resolved())
+    .flat();
 
-  if (tags?.length > 0) {
+  if (tags.length > 0) {
     menuItems.push(
       {
         type: "button",
@@ -634,32 +640,34 @@ function tagsMenuItems(items: any[]): MenuItem[] {
         onClick: async () => {
           for (const note of items) {
             for (const tag of tags) {
-              if (!note.tags.includes(tag)) continue;
-              await db.notes?.note(note).untag(tag);
+              await db.relations.unlink(tag, note);
             }
           }
-          store.refresh();
+          tagStore.get().refresh();
+          editorStore.get().refreshTags();
+          store.get().refresh();
         }
       },
       { key: "sep", type: "separator" }
     );
 
-    tags?.forEach((tag) => {
-      if (menuItems.find((item) => item.key === tag)) return;
+    tags.forEach((tag) => {
+      if (menuItems.find((item) => item.key === tag.id)) return;
 
       menuItems.push({
         type: "button",
-        key: tag,
-        title: db.tags?.alias(tag),
-        icon: Tag.path,
+        key: tag.id,
+        title: tag.title,
+        icon: TagIcon.path,
         isChecked: true,
         tooltip: "Click to remove from this tag",
         onClick: async () => {
           for (const note of items) {
-            if (!note.tags.includes(tag)) continue;
-            await db.notes?.note(note).untag(tag);
+            await db.relations.unlink(tag, note);
           }
-          store.refresh();
+          tagStore.get().refresh();
+          editorStore.get().refreshTags();
+          store.get().refresh();
         }
       });
     });

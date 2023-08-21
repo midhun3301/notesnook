@@ -37,14 +37,13 @@ import useDatabase from "../hooks/use-database";
 import { Loader } from "../components/loader";
 import { showToast } from "../utils/toast";
 import AuthContainer from "../components/auth-container";
-
 import { useTimer } from "../hooks/use-timer";
-import { AuthenticatorType } from "../dialogs/mfa/types";
 import {
   showLoadingDialog,
   showLogoutConfirmation
 } from "../common/dialog-controller";
 import { ErrorText } from "../components/error-text";
+import { AuthenticatorType, User } from "@notesnook/core/dist/api/user-manager";
 
 type EmailFormData = {
   email: string;
@@ -177,7 +176,7 @@ function Auth(props: AuthProps) {
 
   useEffect(() => {
     if (!isAppLoaded) return;
-    db.user?.getUser().then((user) => {
+    db.user.getUser().then((user) => {
       if (user && authorizedRoutes.includes(route) && !isSessionExpired())
         return openURL("/");
       setIsReady(true);
@@ -402,7 +401,7 @@ function SessionExpiry(props: BaseAuthComponentProps<"sessionExpiry">) {
 
   useEffect(() => {
     (async () => {
-      const user = await db.user?.getUser();
+      const user = await db.user.getUser();
       if (user && isSessionExpired()) {
         setUser(user);
       } else if (!user) {
@@ -481,7 +480,7 @@ function SessionExpiry(props: BaseAuthComponentProps<"sessionExpiry">) {
           if (await showLogoutConfirmation()) {
             await showLoadingDialog({
               title: "You are being logged out",
-              action: () => db.user?.logout(true),
+              action: () => db.user.logout(true),
               subtitle: "Please wait..."
             });
             openURL("/login");
@@ -518,7 +517,7 @@ function AccountRecovery(props: BaseAuthComponentProps<"recover">) {
           return;
         }
 
-        const url = await db.user?.recoverAccount(form.email.toLowerCase());
+        const url = await db.user.recoverAccount(form.email.toLowerCase());
         console.log(url);
         if (IS_TESTING) {
           window.open(url, "_self");
@@ -602,7 +601,7 @@ function MFACode(props: BaseAuthComponentProps<"mfa:code">) {
     async (selectedMethod: "sms" | "email") => {
       setIsSending(true);
       try {
-        await db.mfa?.sendCode(selectedMethod);
+        await db.mfa.sendCode(selectedMethod);
         setEnabled(false);
       } catch (e) {
         const error = e as Error;

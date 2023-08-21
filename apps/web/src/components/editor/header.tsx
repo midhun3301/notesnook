@@ -17,7 +17,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useStore } from "../../stores/editor-store";
 import { Input } from "@theme-ui/components";
 import { Tag, Plus } from "../icons";
@@ -31,12 +31,9 @@ type HeaderProps = { readonly: boolean };
 function Header(props: HeaderProps) {
   const { readonly } = props;
   const id = useStore((store) => store.session.id);
-  const tags = useStore((store) => store.session.tags);
+  const tags = useStore((store) => store.tags);
   const setTag = useStore((store) => store.setTag);
-  const filterableTags = useMemo(() => {
-    return db.tags?.all.filter((t) => tags?.every((tag) => tag !== t?.title));
-  }, [tags]);
-
+  console.log(tags);
   return (
     <>
       {!readonly && id && (
@@ -44,29 +41,27 @@ function Header(props: HeaderProps) {
           sx={{ lineHeight: 2.5, alignItems: "center", flexWrap: "wrap" }}
           data-test-id="tags"
         >
-          {tags?.map((tag) => (
+          {tags.map((tag) => (
             <IconTag
               testId={`tag`}
-              key={tag}
-              text={db.tags?.alias(tag)}
+              key={tag.id}
+              text={tag.title}
               icon={Tag}
               title={`Click to remove`}
-              onClick={() => setTag(tag)}
+              onClick={() => setTag(tag.title)}
               styles={{ container: { mr: 1 }, text: { fontSize: "body" } }}
             />
           ))}
           <Autosuggest
             sessionId={id}
-            filter={(query) =>
-              db.lookup?.tags(filterableTags, query).slice(0, 10) || []
-            }
+            filter={(query) => db.lookup?.tags(tags, query).slice(0, 10) || []}
             onAdd={(value) => setTag(value)}
             onSelect={(item) => setTag(item.title)}
             onRemove={() => {
               if (tags.length <= 0) return;
-              setTag(tags[tags.length - 1]);
+              setTag(tags[tags.length - 1].title);
             }}
-            defaultItems={filterableTags?.slice(0, 10) || []}
+            defaultItems={tags.slice(0, 10) || []}
           />
         </Flex>
       )}

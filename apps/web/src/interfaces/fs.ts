@@ -37,6 +37,12 @@ import { Cipher, DataFormat, SerializedKey } from "@notesnook/crypto";
 import { IDataType } from "hash-wasm/dist/lib/util";
 import { IndexedDBKVStore } from "./key-value";
 import FileHandle from "@notesnook/streamable-fs/dist/src/filehandle";
+import {
+  FileEncryptionMetadataWithOutputType,
+  IFileStorage,
+  Output,
+  RequestOptions
+} from "@notesnook/core/dist/interfaces";
 
 const ABYTES = 17;
 const CHUNK_SIZE = 512 * 1024;
@@ -47,7 +53,7 @@ const UPLOAD_PART_REQUIRED_CHUNKS = Math.ceil(
 const MINIMUM_MULTIPART_FILE_SIZE = 25 * 1024 * 1024;
 const streamablefs = new StreamableFS("streamable-fs");
 
-async function writeEncryptedFile(
+export async function writeEncryptedFile(
   file: File,
   key: SerializedKey,
   hash: string
@@ -107,18 +113,16 @@ async function writeEncryptedFile(
  * 3. We encrypt the Uint8Array
  * 4. We save the encrypted Uint8Array
  */
-async function writeEncryptedBase64(metadata: {
-  data: string;
-  key: SerializedKey;
-  mimeType?: string;
-}) {
-  const { data, key, mimeType } = metadata;
-
+async function writeEncryptedBase64(
+  data: string,
+  key: SerializedKey,
+  mimeType: string
+) {
   const bytes = new Uint8Array(Buffer.from(data, "base64"));
 
   const { hash, type: hashType } = await hashBuffer(bytes);
 
-  const attachment = db.attachments?.attachment(hash);
+  const attachment = db.attachments.attachment(hash);
 
   const file = new File([bytes.buffer], hash, {
     type: attachment?.metadata.type || mimeType || "application/octet-stream"
@@ -136,14 +140,16 @@ function hashBase64(data: string) {
   return hashBuffer(Buffer.from(data, "base64"));
 }
 
-async function hashBuffer(data: IDataType) {
+export async function hashBuffer(data: IDataType) {
   return {
     hash: await xxhash64(data),
     type: "xxh64"
   };
 }
 
-async function hashStream(reader: ReadableStreamDefaultReader<Uint8Array>) {
+export async function hashStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+) {
   const hasher = await createXXHash64();
   hasher.init();
 
@@ -157,47 +163,46 @@ async function hashStream(reader: ReadableStreamDefaultReader<Uint8Array>) {
   return { type: "xxh64", hash: hasher.digest("hex") };
 }
 
-async function readEncrypted(
+async function readEncrypted<TOutputFormat extends OutputFormat>(
   filename: string,
   key: SerializedKey,
-  cipherData: Cipher<DataFormat> & { outputType: DataFormat }
+  cipherData: FileEncryptionMetadataWithOutputType<TOutputFormat>
 ) {
   const fileHandle = await streamablefs.readFile(filename);
   if (!fileHandle) {
     console.error(`File not found. (File hash: ${filename})`);
-    return null;
+    return;
   }
   const decryptionStream = await NNCrypto.createDecryptionStream(
     key,
     cipherData.iv
   );
 
-  return cipherData.outputType === "base64" || cipherData.outputType === "text"
-    ? (
-        await consumeReadableStream(
-          fileHandle.readable
-            .pipeThrough(decryptionStream)
-            .pipeThrough(
-              cipherData.outputType === "text"
-                ? new globalThis.TextDecoderStream()
-                : new Base64DecoderStream()
-            )
-        )
-      ).join("")
-    : new Uint8Array(
-        Buffer.concat(
+  return (
+    cipherData.outputType === "base64" || cipherData.outputType === "text"
+      ? (
           await consumeReadableStream(
-            fileHandle.readable.pipeThrough(decryptionStream)
+            fileHandle.readable
+              .pipeThrough(decryptionStream)
+              .pipeThrough(
+                cipherData.outputType === "text"
+                  ? new globalThis.TextDecoderStream()
+                  : new Base64DecoderStream()
+              )
+          )
+        ).join("")
+      : new Uint8Array(
+          Buffer.concat(
+            await consumeReadableStream(
+              fileHandle.readable.pipeThrough(decryptionStream)
+            )
           )
         )
-      );
+  ) as Output<TOutputFormat>;
 }
 
-type RequestOptions = {
-  headers: Record<string, string>;
+type RequestOptionsWithSignal = RequestOptions & {
   signal: AbortSignal;
-  url: string;
-  chunkSize: number;
 };
 
 type UploadAdditionalData = {
@@ -207,7 +212,10 @@ type UploadAdditionalData = {
   uploadedChunks?: { PartNumber: number; ETag: string }[];
 };
 
-async function uploadFile(filename: string, requestOptions: RequestOptions) {
+async function uploadFile(
+  filename: string,
+  requestOptions: RequestOptionsWithSignal
+) {
   const fileHandle = await streamablefs.readFile(filename);
   if (!fileHandle)
     throw new Error(`File stream not found. (File hash: ${filename})`);
@@ -256,7 +264,7 @@ async function uploadFile(filename: string, requestOptions: RequestOptions) {
 async function singlePartUploadFile(
   fileHandle: FileHandle,
   filename: string,
-  requestOptions: RequestOptions
+  requestOptions: RequestOptionsWithSignal
 ) {
   console.log("Streaming file upload!");
   const { url, headers, signal } = requestOptions;
@@ -296,7 +304,7 @@ async function singlePartUploadFile(
 async function multiPartUploadFile(
   fileHandle: FileHandle,
   filename: string,
-  requestOptions: RequestOptions
+  requestOptions: RequestOptionsWithSignal
 ) {
   const { headers, signal } = requestOptions;
 
@@ -423,7 +431,10 @@ function reportProgress(
   });
 }
 
-async function downloadFile(filename: string, requestOptions: RequestOptions) {
+async function downloadFile(
+  filename: string,
+  requestOptions: RequestOptionsWithSignal
+) {
   const { url, headers, chunkSize, signal } = requestOptions;
   const handle = await streamablefs.readFile(filename);
 
@@ -434,7 +445,7 @@ async function downloadFile(filename: string, requestOptions: RequestOptions) {
     return true;
   else if (handle) await handle.delete();
 
-  const attachment = db.attachments?.attachment(filename);
+  const attachment = db.attachments.attachment(filename);
   try {
     reportProgress(
       { total: 100, loaded: 0 },
@@ -464,13 +475,13 @@ async function downloadFile(filename: string, requestOptions: RequestOptions) {
     );
     if (contentLength === 0 || isNaN(contentLength)) {
       const error = `File length is 0. Please upload this file again from the attachment manager. (File hash: ${filename})`;
-      await db.attachments?.markAsFailed(filename, error);
+      await db.attachments.markAsFailed(filename, error);
       throw new Error(error);
     }
 
     if (!response.body) {
       const error = `The download response does not contain a body. Please upload this file again from the attachment manager. (File hash: ${filename})`;
-      await db.attachments?.markAsFailed(filename, error);
+      await db.attachments.markAsFailed(filename, error);
       throw new Error(error);
     }
 
@@ -478,7 +489,7 @@ async function downloadFile(filename: string, requestOptions: RequestOptions) {
     const decryptedLength = contentLength - totalChunks * ABYTES;
     if (attachment && attachment.length !== decryptedLength) {
       const error = `File length mismatch. Please upload this file again from the attachment manager. (File hash: ${filename})`;
-      await db.attachments?.markAsFailed(filename, error);
+      await db.attachments.markAsFailed(filename, error);
       throw new Error(error);
     }
 
@@ -541,7 +552,7 @@ export async function decryptFile(
   return await toBlob(fileHandle.readable.pipeThrough(decryptionStream));
 }
 
-async function saveFile(filename: string, fileMetadata: FileMetadata) {
+export async function saveFile(filename: string, fileMetadata: FileMetadata) {
   if (!fileMetadata) return false;
 
   const { name, type, isUploaded } = fileMetadata;
@@ -553,7 +564,10 @@ async function saveFile(filename: string, fileMetadata: FileMetadata) {
     await streamablefs.deleteFile(filename);
 }
 
-async function deleteFile(filename: string, requestOptions: RequestOptions) {
+async function deleteFile(
+  filename: string,
+  requestOptions: RequestOptionsWithSignal
+) {
   if (!requestOptions) return await streamablefs.deleteFile(filename);
   if (!requestOptions && !(await streamablefs.exists(filename))) return true;
 
@@ -572,10 +586,10 @@ async function deleteFile(filename: string, requestOptions: RequestOptions) {
   }
 }
 
-async function getUploadedFileSize(filename: string) {
+export async function getUploadedFileSize(filename: string) {
   try {
     const url = `${hosts.API_HOST}/s3?name=${filename}`;
-    const token = await db.user?.tokenManager.getAccessToken();
+    const token = await db.tokenManager.getAccessToken();
 
     const attachmentInfo = await axios.head(url, {
       headers: { Authorization: `Bearer ${token}` }
@@ -593,24 +607,16 @@ function clearFileStorage() {
   return streamablefs.clear();
 }
 
-const FS = {
+export const FileStorage: IFileStorage = {
   writeEncryptedBase64,
   readEncrypted,
   uploadFile: cancellable(uploadFile),
   downloadFile: cancellable(downloadFile),
   deleteFile,
-  saveFile,
   exists,
-  writeEncryptedFile,
   clearFileStorage,
-  getUploadedFileSize,
-  decryptFile,
-
-  hashBase64,
-  hashBuffer,
-  hashStream
+  hashBase64
 };
-export default FS;
 
 function isAttachmentDeletable(type: string) {
   return !type.startsWith("image/") && !type.startsWith("application/pdf");
@@ -620,15 +626,21 @@ function isSuccessStatusCode(statusCode: number) {
   return statusCode >= 200 && statusCode <= 299;
 }
 
-function cancellable(
-  operation: (filename: string, requestOptions: RequestOptions) => any
+function cancellable<T>(
+  operation: (
+    filename: string,
+    requestOptions: RequestOptionsWithSignal
+  ) => Promise<T>
 ) {
   return function (filename: string, requestOptions: RequestOptions) {
     const abortController = new AbortController();
-    requestOptions.signal = abortController.signal;
     return {
-      execute: () => operation(filename, requestOptions),
-      cancel: (message: string) => {
+      execute: () =>
+        operation(filename, {
+          ...requestOptions,
+          signal: abortController.signal
+        }),
+      cancel: async (message: string) => {
         abortController.abort(message);
       }
     };

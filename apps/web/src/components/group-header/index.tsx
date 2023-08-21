@@ -38,6 +38,11 @@ import { useStore as useNoteStore } from "../../stores/note-store";
 import { useStore as useNotebookStore } from "../../stores/notebook-store";
 import useMobile from "../../hooks/use-mobile";
 import { MenuButtonItem, MenuItem } from "@notesnook/ui";
+import {
+  GroupHeader as GroupHeaderType,
+  GroupOptions,
+  GroupingKey
+} from "@notesnook/core/dist/types";
 
 const groupByToTitleMap = {
   none: "None",
@@ -143,7 +148,7 @@ const sortByMenu: (options: GroupingMenuOptions) => MenuItem = (options) => ({
 });
 
 export function showSortMenu(groupingKey: GroupingKey, refresh: () => void) {
-  const groupOptions = db.settings?.getGroupOptions(groupingKey);
+  const groupOptions = db.settings.getGroupOptions(groupingKey);
   if (!groupOptions) return;
 
   const menuOptions: Omit<GroupingMenuOptions, "parentKey"> = {
@@ -177,7 +182,7 @@ function changeGroupOptions(
     if (item.key === "abc") groupOptions.sortBy = "title";
     else groupOptions.sortBy = "dateEdited";
   }
-  db.settings?.setGroupOptions(options.groupingKey, groupOptions);
+  db.settings.setGroupOptions(options.groupingKey, groupOptions);
   options.refresh();
 }
 
@@ -197,7 +202,7 @@ type GroupHeaderProps = {
   groupingKey: GroupingKey;
   index: number;
 
-  groups: { title: string }[];
+  groups: GroupHeaderType[];
   onJump: (title: string) => void;
   refresh: () => void;
   onSelectGroup: () => void;
@@ -215,7 +220,7 @@ function GroupHeader(props: GroupHeaderProps) {
     isFocused
   } = props;
   const [groupOptions, setGroupOptions] = useState(
-    db.settings!.getGroupOptions(groupingKey)
+    db.settings.getGroupOptions(groupingKey)
   );
   const groupHeaderRef = useRef<HTMLDivElement>(null);
   const { openMenu, target } = useMenuTrigger();
