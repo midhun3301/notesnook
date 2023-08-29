@@ -35,7 +35,7 @@ import {
   eOpenTrialEndingDialog,
   eShowGetPremium
 } from "../utils/events";
-import { eSendEvent, presentSheet, ToastEvent } from "./event-manager";
+import { eSendEvent, presentSheet, ToastManager } from "./event-manager";
 
 import SettingsService from "./settings";
 let premiumStatus = 0;
@@ -189,7 +189,7 @@ const showVerifyEmailDialog = () => {
           lastVerificationEmailTime &&
           Date.now() - lastVerificationEmailTime < 60000 * 2
         ) {
-          ToastEvent.show({
+          ToastManager.show({
             heading: "Please wait before requesting another email",
             type: "error",
             context: "local"
@@ -202,7 +202,7 @@ const showVerifyEmailDialog = () => {
           lastVerificationEmailTime: Date.now()
         });
 
-        ToastEvent.show({
+        ToastManager.show({
           heading: "Verification email sent!",
           message:
             "We have sent you an email confirmation link. Please check your email inbox to verify your account. If you cannot find the email, check your spam folder.",
@@ -210,7 +210,7 @@ const showVerifyEmailDialog = () => {
           context: "local"
         });
       } catch (e) {
-        ToastEvent.show({
+        ToastManager.show({
           heading: "Could not send email",
           message: e.message,
           type: "error",

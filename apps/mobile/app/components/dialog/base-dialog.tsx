@@ -17,8 +17,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import React, { useEffect } from "react";
+import React, { PropsWithChildren, useEffect } from "react";
 import {
+  ColorValue,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -32,6 +33,24 @@ import { useSettingStore } from "../../stores/use-setting-store";
 import { BouncingView } from "../ui/transitions/bouncing-view";
 import { ScopedThemeProvider } from "@notesnook/theme";
 
+export interface BaseDialogProps extends PropsWithChildren {
+  animation?: "fade" | "none" | "slide" | undefined;
+  visible: boolean;
+  onRequestClose?: () => void;
+  onShow?: () => void;
+  premium?: boolean;
+  statusBarTranslucent?: boolean;
+  transparent?: boolean;
+  centered?: boolean;
+  bottom?: boolean;
+  background?: string | ColorValue;
+  animated?: boolean;
+  bounce?: boolean;
+  closeOnTouch?: boolean;
+  useSafeArea?: boolean;
+  avoidKeyboardResize?: boolean;
+}
+
 const BaseDialog = ({
   visible,
   onRequestClose,
@@ -43,13 +62,13 @@ const BaseDialog = ({
   transparent,
   centered = true,
   bottom = false,
-  background = null,
   animated = true,
   bounce = true,
   closeOnTouch = true,
   useSafeArea = true,
-  avoidKeyboardResize = false
-}) => {
+  avoidKeyboardResize = false,
+  background
+}: BaseDialogProps) => {
   const floating = useIsFloatingKeyboard();
 
   useEffect(() => {
@@ -116,7 +135,7 @@ const BaseDialog = ({
               ]}
             >
               <TouchableOpacity
-                onPress={closeOnTouch ? onRequestClose : null}
+                onPress={closeOnTouch ? onRequestClose : undefined}
                 style={styles.overlayButton}
               />
               {premium}

@@ -18,7 +18,19 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 import { getFormattedDate } from "@notesnook/common";
+import {
+  isEncryptedContent,
+  isUnencryptedContent
+} from "@notesnook/core/dist/collections/content";
+import { NoteContent } from "@notesnook/core/dist/collections/session-content";
 import { EVENTS } from "@notesnook/core/dist/common";
+import {
+  ContentItem,
+  ContentType,
+  Note,
+  UnencryptedContentItem,
+  isDeleted
+} from "@notesnook/core/dist/types";
 import { useThemeEngineStore } from "@notesnook/theme";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WebView from "react-native-webview";
@@ -40,10 +52,9 @@ import { useNoteStore } from "../../../stores/use-notes-store";
 import { useTagStore } from "../../../stores/use-tag-store";
 import { eClearEditor, eOnLoadNote } from "../../../utils/events";
 import { tabBarRef } from "../../../utils/global-refs";
-import { NoteType } from "../../../utils/types";
 import { onNoteCreated } from "../../notes/common";
 import Commands from "./commands";
-import { Content, EditorState, Note, SavePayload } from "./types";
+import { EditorState, SavePayload } from "./types";
 import {
   EditorEvents,
   clearAppState,
@@ -66,8 +77,15 @@ export const useEditor = (
   const [sessionId, setSessionId] = useState<string>(makeSessionId());
   const sessionIdRef = useRef(sessionId);
   const editorRef = useRef<WebView>(null);
-  const currentNote = useRef<NoteType | null>();
-  const currentContent = useRef<Content | null>();
+  const currentNote = useRef<
+    | (Note & {
+        content?: NoteContent<false> & {
+          isPreview?: boolean;
+        };
+      })
+    | null
+  >();
+  const currentContent = useRef<Partial<UnencryptedContentItem> | null>();
   const timers = useRef<{ [name: string]: NodeJS.Timeout }>({});
   const commands = useMemo(() => new Commands(editorRef), [editorRef]);
   const sessionHistoryId = useRef<number>();
@@ -135,7 +153,7 @@ export const useEditor = (
   const reset = useCallback(
     async (resetState = true, resetContent = true) => {
       currentNote.current?.id &&
-        db.fs?.cancel(currentNote.current.id, "download");
+        db.fs().cancel(currentNote.current.id, "download");
       currentNote.current = null;
       loadedImages.current = {};
       currentContent.current = null;
@@ -185,7 +203,7 @@ export const useEditor = (
           await reset();
           return;
         }
-        let note = id ? (db.notes?.note(id)?.data as Note) : null;
+        let note = id ? db.notes?.note(id)?.data : undefined;
         const locked = note?.locked;
         if (note?.conflicted) return;
 
@@ -196,22 +214,27 @@ export const useEditor = (
           currentSessionHistoryId = sessionHistoryId.current;
         }
 
-        const noteData: Partial<Note> = {
+        const noteData: Partial<Note> & {
+          sessionId?: string;
+          content?: NoteContent<false>;
+        } = {
           id,
-          sessionId: isContentInvalid(data) ? null : currentSessionHistoryId
+          sessionId: isContentInvalid(data)
+            ? undefined
+            : (currentSessionHistoryId as any)
         };
 
         noteData.title = title;
         if (data) {
           noteData.content = {
             data: data,
-            type: type
+            type: type as ContentType
           };
         }
         if (!locked) {
           id = await db.notes?.add(noteData);
           if (!note && id) {
-            currentNote.current = db.notes?.note(id).data as NoteType;
+            currentNote.current = db.notes?.note(id)?.data;
             const defaultNotebook = db.settings.getDefaultNotebook();
             if (!state.current.onNoteCreated && defaultNotebook) {
               onNoteCreated(id, {
@@ -224,7 +247,7 @@ export const useEditor = (
             }
 
             if (!noteData.title) {
-              postMessage(EditorEvents.title, currentNote.current.title);
+              postMessage(EditorEvents.title, currentNote.current?.title);
             }
           }
 
@@ -253,7 +276,10 @@ export const useEditor = (
         }
         if (id && sessionIdRef.current === currentSessionId) {
           note = db.notes?.note(id)?.data as Note;
-          await commands.setStatus(getFormattedDate(note.dateEdited), "Saved");
+          await commands.setStatus(
+            getFormattedDate(note.dateEdited, "date-time"),
+            "Saved"
+          );
 
           lastContentChangeTime.current = note.dateEdited;
 
@@ -277,19 +303,35 @@ export const useEditor = (
     [commands, isDefaultEditor, postMessage, readonly, reset]
   );
 
-  const loadContent = useCallback(async (note: NoteType) => {
-    currentNote.current = note;
-    if (note.locked || note.content) {
-      currentContent.current = {
-        data: note.content?.data,
-        type: note.content?.type || "tiptap",
-        noteId: currentNote.current?.id as string
-      };
-    } else {
-      if (!note.contentId) return;
-      currentContent.current = await db.content?.raw(note.contentId);
-    }
-  }, []);
+  const loadContent = useCallback(
+    async (
+      note: Note & {
+        content?: NoteContent<false>;
+      }
+    ) => {
+      currentNote.current = note;
+      if ((note.locked || note.content) && note.content?.data) {
+        currentContent.current = {
+          data: note.content?.data,
+          type: note.content?.type || "tiptap",
+          noteId: currentNote.current?.id as string
+        };
+      } else if (note.contentId) {
+        const rawContent = await db.content?.raw(note.contentId);
+        if (
+          rawContent &&
+          !isDeleted(rawContent) &&
+          isUnencryptedContent(rawContent)
+        ) {
+          currentContent.current = {
+            data: rawContent.data,
+            type: rawContent.type
+          };
+        }
+      }
+    },
+    []
+  );
 
   const getMediaToLoad = (previousContent?: string) => {
     if (!currentNote.current?.id) return [];
@@ -328,6 +370,7 @@ export const useEditor = (
     clearTimeout(timers.current[timerId]);
     timers.current[timerId] = setTimeout(() => {
       if (!currentNote.current?.id) return;
+
       if (currentNote.current?.content?.isPreview) {
         db.content?.downloadMedia(
           currentNote.current?.id,
@@ -344,12 +387,7 @@ export const useEditor = (
   }, []);
 
   const loadNote = useCallback(
-    async (
-      item: Omit<NoteType, "type"> & {
-        type: "note" | "new";
-        forced?: boolean;
-      }
-    ) => {
+    async (event: { item?: Note; forced?: boolean; newNote?: boolean }) => {
       state.current.currentlyEditing = true;
       const editorState = useEditorStore.getState();
 
@@ -360,9 +398,9 @@ export const useEditor = (
         state.current.ready = true;
       }
 
-      if (item && item.type === "new") {
+      if (event.newNote) {
         currentNote.current && (await reset());
-        const nextSessionId = makeSessionId(item as NoteType);
+        const nextSessionId = makeSessionId(undefined);
         setSessionId(nextSessionId);
         sessionIdRef.current = nextSessionId;
         sessionHistoryId.current = Date.now();
@@ -371,7 +409,10 @@ export const useEditor = (
         lastContentChangeTime.current = 0;
         useEditorStore.getState().setReadonly(false);
       } else {
-        if (!item.forced && currentNote.current?.id === item.id) return;
+        if (!event.item) return;
+        const item = event.item;
+
+        if (!event.forced && currentNote.current?.id === item.id) return;
         state.current.movedAway = false;
         state.current.currentlyEditing = true;
 
@@ -380,7 +421,7 @@ export const useEditor = (
           isDefaultEditor && editorState.setCurrentlyEditingNote(item.id);
         }
 
-        await loadContent(item as NoteType);
+        await loadContent(item);
 
         if (
           currentNote.current?.id === item.id &&
@@ -400,19 +441,22 @@ export const useEditor = (
           overlay(true);
         }
         if (!state.current.ready) {
-          currentNote.current = item as NoteType;
+          currentNote.current = item;
           return;
         }
         lastContentChangeTime.current = item.dateEdited;
-        const nextSessionId = makeSessionId(item as NoteType);
+        const nextSessionId = makeSessionId(item.id);
         lockedSessionId.current = nextSessionId;
         sessionHistoryId.current = Date.now();
         setSessionId(nextSessionId);
 
         commands.setSessionId(nextSessionId);
         sessionIdRef.current = nextSessionId;
-        currentNote.current = item as NoteType;
-        await commands.setStatus(getFormattedDate(item.dateEdited), "Saved");
+        currentNote.current = item;
+        await commands.setStatus(
+          getFormattedDate(item.dateEdited, "date-time"),
+          "Saved"
+        );
         await postMessage(EditorEvents.title, item.title);
         loadingState.current = currentContent.current?.data;
         if (currentContent.current?.data) {
@@ -446,7 +490,7 @@ export const useEditor = (
     ]
   );
 
-  const lockNoteWithVault = useCallback((note: NoteType) => {
+  const lockNoteWithVault = useCallback((note: Note) => {
     eSendEvent(eClearEditor);
     openVault({
       item: note,
@@ -459,29 +503,28 @@ export const useEditor = (
   }, []);
 
   const onSyncComplete = useCallback(
-    async (data: NoteType | Content) => {
+    async (data: Note | ContentItem) => {
       if (SettingsService.get().disableRealtimeSync) return;
       if (!data) return;
       const noteId = data.type === "tiptap" ? data.noteId : data.id;
 
       if (!currentNote.current || noteId !== currentNote.current.id) return;
-      const isContentEncrypted = typeof (data as Content)?.data === "object";
-      const note = db.notes?.note(currentNote.current?.id).data as NoteType;
+      const isContentEncrypted =
+        typeof (data as ContentItem)?.data === "object";
 
-      if (lastContentChangeTime.current >= (data as NoteType).dateEdited)
-        return;
+      const note = db.notes?.note(currentNote.current?.id)?.data;
+
+      if (lastContentChangeTime.current >= (data as Note).dateEdited) return;
 
       lock.current = true;
 
       const previousContent = currentContent.current?.data;
 
-      if (data.type === "tiptap") {
+      if (data.type === "tiptap" && note) {
         if (!currentNote.current.locked && isContentEncrypted) {
           lockNoteWithVault(note);
-        } else if (currentNote.current.locked && isContentEncrypted) {
-          const decryptedContent = (await db.vault?.decryptContent(
-            data
-          )) as Content;
+        } else if (currentNote.current.locked && isEncryptedContent(data)) {
+          const decryptedContent = await db.vault?.decryptContent(data);
           if (!decryptedContent) {
             lockNoteWithVault(note);
           } else {
@@ -493,17 +536,23 @@ export const useEditor = (
           if (_nextContent === currentContent.current?.data) return;
           lastContentChangeTime.current = note.dateEdited;
           await postMessage(EditorEvents.updatehtml, _nextContent);
-          currentContent.current = data;
+          if (!isEncryptedContent(data)) {
+            currentContent.current = data as UnencryptedContentItem;
+          }
         }
       } else {
-        const note = data as NoteType;
+        if (data.type !== "note") return;
+        const note = data;
         if (note.title !== currentNote.current.title) {
           postMessage(EditorEvents.title, note.title);
         }
         if (note.tags !== currentNote.current.tags) {
           await commands.setTags(note);
         }
-        await commands.setStatus(getFormattedDate(note.dateEdited), "Saved");
+        await commands.setStatus(
+          getFormattedDate(note.dateEdited, "date-time"),
+          "Saved"
+        );
       }
 
       lock.current = false;
@@ -568,7 +617,7 @@ export const useEditor = (
           : forSessionId.split("_")[0];
 
       const noteId = noteIdFromSessionId || currentNote.current?.id;
-      const params = {
+      const params: SavePayload = {
         title,
         data: content,
         type: "tiptap",
@@ -613,12 +662,16 @@ export const useEditor = (
       if (useNoteStore.getState().loading) {
         const remove = useNoteStore.subscribe((state) => {
           if (!state.loading && appState.note) {
-            loadNote(appState.note);
+            loadNote({
+              item: appState.note
+            });
             remove();
           }
         });
       } else {
-        loadNote(appState.note);
+        loadNote({
+          item: appState.note
+        });
       }
     }
     clearAppState();

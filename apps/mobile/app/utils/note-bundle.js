@@ -68,9 +68,9 @@ async function createNotes(bundle) {
 
   for (const item of bundle.notebooks) {
     if (item.type === "notebook") {
-      db.relations.add(item, { id, type: "note" });
+      await db.relations.add(item, { id, type: "note" });
     } else {
-      db.notes.addToNotebook(
+      await db.notes.addToNotebook(
         {
           id: item.notebookId,
           topic: item.id

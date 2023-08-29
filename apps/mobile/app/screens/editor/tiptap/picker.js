@@ -26,7 +26,7 @@ import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import { db } from "../../../common/database";
 import { compressToBase64 } from "../../../common/filesystem/compress";
 import {
-  ToastEvent,
+  ToastManager,
   eSendEvent,
   presentSheet
 } from "../../../services/event-manager";
@@ -74,7 +74,7 @@ const file = async (fileOptions) => {
     let uri = Platform.OS === "ios" ? file.fileCopyUri : file.uri;
 
     if (file.size > FILE_SIZE_LIMIT) {
-      ToastEvent.show({
+      ToastManager.show({
         title: "File too large",
         message: "The maximum allowed size per file is 500 MB",
         type: "error"
@@ -83,7 +83,7 @@ const file = async (fileOptions) => {
     }
 
     if (file.copyError) {
-      ToastEvent.show({
+      ToastManager.show({
         heading: "Failed to open file",
         message: file.copyError,
         type: "error",
@@ -124,7 +124,7 @@ const file = async (fileOptions) => {
       eSendEvent(eCloseSheet);
     }, 1000);
   } catch (e) {
-    ToastEvent.show({
+    ToastManager.show({
       heading: e.message,
       message: "You need internet access to attach a file",
       type: "error",
@@ -146,7 +146,7 @@ const camera = async (options) => {
       (response) => handleImageResponse(response, options)
     );
   } catch (e) {
-    ToastEvent.show({
+    ToastManager.show({
       heading: e.message,
       message: "You need internet access to attach a file",
       type: "error",
@@ -169,7 +169,7 @@ const gallery = async (options) => {
       (response) => handleImageResponse(response, options)
     );
   } catch (e) {
-    ToastEvent.show({
+    ToastManager.show({
       heading: e.message,
       message: "You need internet access to attach a file",
       type: "error",
@@ -215,7 +215,7 @@ const handleImageResponse = async (response, options) => {
 
   let image = response.assets[0];
   if (image.fileSize > IMAGE_SIZE_LIMIT) {
-    ToastEvent.show({
+    ToastManager.show({
       title: "File too large",
       message: "The maximum allowed size per image is 50 MB",
       type: "error"
@@ -260,7 +260,7 @@ export async function attachFile(uri, hash, type, filename, options) {
     let encryptionInfo;
 
     if (options?.hash && options.hash !== hash) {
-      ToastEvent.show({
+      ToastManager.show({
         heading: "Please select the same file for reuploading",
         message: `Expected hash ${options.hash} but got ${hash}.`,
         type: "error",
