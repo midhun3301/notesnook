@@ -64,7 +64,6 @@ async function preprocessHTML(templateData: TemplateData) {
         await import("katex/contrib/mhchem/mhchem.js");
     for (const mathBlock of mathBlocks) {
       const text = mathBlock.textContent;
-      console.log(text);
       mathBlock.innerHTML = katex.renderToString(text, {
         displayMode: true,
         throwOnError: false
