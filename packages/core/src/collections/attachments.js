@@ -374,9 +374,7 @@ export default class Attachments extends Collection {
 
   get pending() {
     return this.all.filter(
-      (attachment) =>
-        (attachment.dateUploaded <= 0 || !attachment.dateUploaded) &&
-        attachment.noteIds.length > 0
+      (attachment) => attachment.dateUploaded <= 0 || !attachment.dateUploaded
     );
   }
 
